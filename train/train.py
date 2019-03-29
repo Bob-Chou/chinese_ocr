@@ -6,40 +6,42 @@ import numpy as np
 from PIL import Image
 
 import tensorflow as tf
-from keras import losses
-from keras import backend as K
-from keras.utils import plot_model
-from keras.preprocessing import image
-from keras.preprocessing.sequence import pad_sequences
-from keras.layers import Input, Dense, Flatten
-from keras.layers.core import Reshape, Masking, Lambda, Permute
-from keras.layers.recurrent import GRU, LSTM
-from keras.layers.wrappers import Bidirectional, TimeDistributed
-from keras.layers.normalization import BatchNormalization
-from keras.layers.convolutional import Conv2D, MaxPooling2D, ZeroPadding2D
-from keras.optimizers import SGD, Adam
-from keras.models import Model
-from keras.callbacks import EarlyStopping, ModelCheckpoint, LearningRateScheduler, TensorBoard
+# from tensorflow.keras import losses
+from tensorflow.keras import backend as K
+# from tensorflow.keras.utils import plot_model
+# from tensorflow.keras.preprocessing import image
+# from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.layers import Input, Dense, Flatten, Reshape, Masking, Lambda, Permute
+# from tensorflow.keras.layers.recurrent import GRU, LSTM
+# from tensorflow.keras.layers.wrappers import Bidirectional, TimeDistributed
+# from tensorflow.keras.layers.normalization import BatchNormalization
+# from tensorflow.keras.layers.convolutional import Conv2D, MaxPooling2D, ZeroPadding2D
+# from tensorflow.keras.optimizers import SGD, Adam
+from tensorflow.keras.models import Model
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, LearningRateScheduler, TensorBoard
 
 from imp import reload
 import densenet
 
+from zoo import init_nncontext
+from zoo.tfpark import KerasModel
 
 img_h = 32
 img_w = 280
 batch_size = 128
 maxlabellength = 10
 
-def get_session(gpu_fraction=1.0):
-
-    num_threads = os.environ.get('OMP_NUM_THREADS')
-    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=gpu_fraction)
-
-    if num_threads:
-        return tf.Session(config=tf.ConfigProto(
-            gpu_options=gpu_options, intra_op_parallelism_threads=num_threads))
-    else:
-        return tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+# def get_session(gpu_fraction=1.0):
+#
+#     num_threads = os.environ.get('OMP_NUM_THREADS')
+#     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=gpu_fraction)
+#
+#     if num_threads:
+#         return tf.Session(config=tf.ConfigProto(
+#             gpu_options=gpu_options, intra_op_parallelism_threads=num_threads))
+#     else:
+#         return tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+#     return tf.Session()
 
 def readfile(filename):
     res = []
@@ -104,18 +106,61 @@ def gen(data_file, image_path, batchsize=128, maxlabellength=10, imagesize=(32, 
             labels[i, :len(str)] = [int(k) - 1 for k in str]
 
         inputs = {'the_input': x,
-                'the_labels': labels,
-                'input_length': input_length,
-                'label_length': label_length,
+                 'the_labels': labels,
+                 'input_length': input_length,
+                 'label_length': label_length,
                 }
         outputs = {'ctc': np.zeros([batchsize])}
         yield (inputs, outputs)
+
+def get_data(data_file, image_path, maxlabellength=10, imagesize=(32, 280)):
+    image_label = readfile(data_file)
+    _imagefile = [i for i, j in image_label.items()]
+    n_image = len(image_label)
+    x = np.zeros((n_image, imagesize[0], imagesize[1], 1), dtype=np.float)
+    labels = np.ones([n_image, maxlabellength]) * 10000
+    input_length = np.zeros([n_image, 1])
+    label_length = np.zeros([n_image, 1])
+
+    _imagefile = np.array(_imagefile)
+
+    import threading
+    th_pool = []
+    def _load_img_parrallel( i, j, x_out, y_out, input_length_out, label_length_out):
+        img1 = Image.open(os.path.join(image_path, j)).convert('L')
+        img = np.array(img1, 'f') / 255.0 - 0.5
+        x_out[i] = np.expand_dims(img, axis=2)
+        # print('imag:shape', img.shape)
+        str = image_label[j]
+        label_length_out[i] = len(str)
+        if(len(str) <= 0):
+            print("len < 0", j)
+        input_length_out[i] = imagesize[1] // 8
+        y_out[i, :len(str)] = [int(k) - 1 for k in str]
+
+    for i, j in enumerate(_imagefile):
+        j = _imagefile[i]
+        th = threading.Thread(target=_load_img_parrallel,
+                              args=(i, j, x, labels, input_length, label_length))
+        th_pool.append(th)
+        th.start()
+
+    for t in th_pool:
+        t.join()
+
+    inputs = {'the_input': x,
+              'the_labels': labels,
+              'input_length': input_length,
+              'label_length': label_length}
+    outputs = {'ctc': np.zeros([n_image])}
+    return (inputs, outputs)
 
 def ctc_lambda_func(args):
     y_pred, labels, input_length, label_length = args
     return K.ctc_batch_cost(labels, y_pred, input_length, label_length)
 
 def get_model(img_h, nclass):
+    # with variable_creator_scope():
     input = Input(shape=(img_h, None, 1), name='the_input')
     y_pred = densenet.dense_cnn(input, nclass)
 
@@ -129,17 +174,22 @@ def get_model(img_h, nclass):
     loss_out = Lambda(ctc_lambda_func, output_shape=(1,), name='ctc')([y_pred, labels, input_length, label_length])
 
     model = Model(inputs=[input, labels, input_length, label_length], outputs=loss_out)
-    model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam', metrics=['accuracy'])
+    # model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam', metrics=['accuracy'])
+    model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam')
 
     return basemodel, model
 
 
 if __name__ == '__main__':
+
+    _ = init_nncontext()
+
+    dataset_root = '/home/bozhou/02_Warehouse/01_chinese_ocr/images'
     char_set = open('char_std_5990.txt', 'r', encoding='utf-8').readlines()
     char_set = ''.join([ch.strip('\n') for ch in char_set][1:] + ['卍'])
     nclass = len(char_set)
 
-    K.set_session(get_session())
+    # K.set_session(get_session())
     reload(densenet)
     basemodel, model = get_model(img_h, nclass)
 
@@ -149,8 +199,10 @@ if __name__ == '__main__':
         basemodel.load_weights(modelPath)
         print('done!')
 
-    train_loader = gen('data_train.txt', './images', batchsize=batch_size, maxlabellength=maxlabellength, imagesize=(img_h, img_w))
-    test_loader = gen('data_test.txt', './images', batchsize=batch_size, maxlabellength=maxlabellength, imagesize=(img_h, img_w))
+    train_data = get_data('data_train_slice.txt', dataset_root, maxlabellength=maxlabellength, imagesize=(img_h, img_w))
+    test_data = get_data('data_test_slice.txt', dataset_root, maxlabellength=maxlabellength, imagesize=(img_h, img_w))
+    # train_loader = gen('data_train_slice.txt', dataset_root, batchsize=batch_size, maxlabellength=maxlabellength, imagesize=(img_h, img_w))
+    # test_loader = gen('data_test_slice.txt', dataset_root, batchsize=batch_size, maxlabellength=maxlabellength, imagesize=(img_h, img_w))
 
     checkpoint = ModelCheckpoint(filepath='./models/weights_densenet-{epoch:02d}-{val_loss:.2f}.h5', monitor='val_loss', save_best_only=False, save_weights_only=True)
     lr_schedule = lambda epoch: 0.0005 * 0.4**epoch
@@ -160,11 +212,15 @@ if __name__ == '__main__':
     tensorboard = TensorBoard(log_dir='./models/logs', write_graph=True)
 
     print('-----------Start training-----------')
-    model.fit_generator(train_loader,
-    	steps_per_epoch = 3607567 // batch_size,
-    	epochs = 10,
-    	initial_epoch = 0,
-    	validation_data = test_loader,
-    	validation_steps = 36440 // batch_size,
-    	callbacks = [checkpoint, earlystop, changelr, tensorboard])
+    keras_model = KerasModel(model)
+    keras_model.fit(train_data[0], train_data[1],
+                    validation_data=(test_data[0], test_data[1]),
+                    epochs=10, batch_size=280, distributed=True)
+    # model.fit_generator(train_loader,
+    #                     steps_per_epoch = 3607567 // batch_size,
+    #                     epochs = 10,
+    #                     initial_epoch = 0,
+    #                     validation_data = test_loader,
+    #                     validation_steps = 36440 // batch_size,
+    #                     callbacks = [checkpoint, earlystop, changelr, tensorboard])
 
