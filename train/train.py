@@ -106,10 +106,9 @@ def gen(data_file, image_path, batchsize=128, maxlabellength=10, imagesize=(32, 
             labels[i, :len(str)] = [int(k) - 1 for k in str]
 
         inputs = {'the_input': x,
-                 'the_labels': labels,
-                 'input_length': input_length,
-                 'label_length': label_length,
-                }
+                  'the_labels': labels,
+                  'input_length': input_length,
+                  'label_length': label_length}
         outputs = {'ctc': np.zeros([batchsize])}
         yield (inputs, outputs)
 
@@ -152,6 +151,7 @@ def get_data(data_file, image_path, maxlabellength=10, imagesize=(32, 280)):
               'the_labels': labels,
               'input_length': input_length,
               'label_length': label_length}
+    # outputs = {'ctc': np.zeros([n_image])}
     outputs = {'ctc': np.zeros([n_image])}
     return (inputs, outputs)
 
@@ -175,7 +175,8 @@ def get_model(img_h, nclass):
 
     model = Model(inputs=[input, labels, input_length, label_length], outputs=loss_out)
     # model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam', metrics=['accuracy'])
-    model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam')
+    model.compile(loss={'ctc': lambda y_true, y_pred: y_pred + y_true - y_true},
+                  optimizer='adam')
 
     return basemodel, model
 
@@ -184,7 +185,8 @@ if __name__ == '__main__':
 
     _ = init_nncontext()
 
-    dataset_root = '/home/bozhou/02_Warehouse/01_chinese_ocr/images'
+    dataset_root = 'images'
+
     char_set = open('char_std_5990.txt', 'r', encoding='utf-8').readlines()
     char_set = ''.join([ch.strip('\n') for ch in char_set][1:] + ['卍'])
     nclass = len(char_set)
@@ -199,8 +201,8 @@ if __name__ == '__main__':
         basemodel.load_weights(modelPath)
         print('done!')
 
-    train_data = get_data('data_train_slice.txt', dataset_root, maxlabellength=maxlabellength, imagesize=(img_h, img_w))
-    test_data = get_data('data_test_slice.txt', dataset_root, maxlabellength=maxlabellength, imagesize=(img_h, img_w))
+    train_data = get_data('traindata.txt', dataset_root, maxlabellength=maxlabellength, imagesize=(img_h, img_w))
+    test_data = get_data('testdata.txt', dataset_root, maxlabellength=maxlabellength, imagesize=(img_h, img_w))
     # train_loader = gen('data_train_slice.txt', dataset_root, batchsize=batch_size, maxlabellength=maxlabellength, imagesize=(img_h, img_w))
     # test_loader = gen('data_test_slice.txt', dataset_root, batchsize=batch_size, maxlabellength=maxlabellength, imagesize=(img_h, img_w))
 

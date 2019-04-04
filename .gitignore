@@ -13,3 +13,5 @@ cache/
 logs/
 output/
 
+# Model
+*.npy
