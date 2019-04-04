@@ -217,7 +217,7 @@ if __name__ == '__main__':
     keras_model = KerasModel(model)
     keras_model.fit(train_data[0], train_data[1],
                     validation_data=(test_data[0], test_data[1]),
-                    epochs=10, batch_size=280, distributed=True)
+                    epochs=10, batch_size=28, distributed=True)
     # model.fit_generator(train_loader,
     #                     steps_per_epoch = 3607567 // batch_size,
     #                     epochs = 10,
