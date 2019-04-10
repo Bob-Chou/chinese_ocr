@@ -3,16 +3,26 @@ import tensorflow as tf
 import numpy as np
 from .network import Network
 from ..fast_rcnn.config import cfg
+from zoo.tfpark.estimator import TFEstimatorSpec
 
 class VGGnet_train(Network):
-    def __init__(self, trainable=True):
+    def __init__(self, features=None, labels=None, mode=None, trainable=True):
         self.inputs = []
-        self.data = tf.placeholder(tf.float32, shape=[None, None, None, 3], name='data')
-        self.im_info = tf.placeholder(tf.float32, shape=[None, 3], name='im_info')
-        self.gt_boxes = tf.placeholder(tf.float32, shape=[None, 5], name='gt_boxes')
-        self.gt_ishard = tf.placeholder(tf.int32, shape=[None], name='gt_ishard')
-        self.dontcare_areas = tf.placeholder(tf.float32, shape=[None, 4], name='dontcare_areas')
-        self.keep_prob = tf.placeholder(tf.float32)
+        if features is None or labels is None or mode is None:
+            self.data = tf.placeholder(tf.float32, shape=[None, None, None, 3], name='data')
+            self.im_info = tf.placeholder(tf.float32, shape=[None, 3], name='im_info')
+            self.gt_boxes = tf.placeholder(tf.float32, shape=[None, 5], name='gt_boxes')
+            self.gt_ishard = tf.placeholder(tf.int32, shape=[None], name='gt_ishard')
+            self.dontcare_areas = tf.placeholder(tf.float32, shape=[None, 4], name='dontcare_areas')
+            self.keep_prob = tf.placeholder(tf.float32)
+        else:
+            self.mode = mode
+            self.data = features
+            self.im_info = labels['im_info']
+            self.keep_prob = tf.constant(0.5)
+            self.gt_boxes = labels['gt_boxes']
+            self.gt_ishard = labels['gt_ishard']
+            self.dontcare_areas = labels['dontcare_areas']
         self.layers = dict({'data':self.data, 'im_info':self.im_info, 'gt_boxes':self.gt_boxes,\
                             'gt_ishard': self.gt_ishard, 'dontcare_areas': self.dontcare_areas})
         self.trainable = trainable
@@ -63,3 +73,11 @@ class VGGnet_train(Network):
         (self.feed('rpn_cls_score')
              .spatial_reshape_layer(2, name = 'rpn_cls_score_reshape')
              .spatial_softmax(name='rpn_cls_prob'))
+
+    def model_fn(self):
+        total_loss, model_loss, rpn_cross_entropy, rpn_loss_box = self.build_loss(
+            ohem=cfg.TRAIN.OHEM)
+        if self.mode == tf.estimator.ModeKeys.EVAL or self.mode == tf.estimator.ModeKeys.TRAIN:
+            return TFEstimatorSpec(self.mode, loss=total_loss)
+        else:
+            raise NotImplementedError
