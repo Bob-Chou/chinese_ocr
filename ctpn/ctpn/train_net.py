@@ -27,9 +27,9 @@ if __name__ == '__main__':
     device_name = '/gpu:0'
     print(device_name)
 
-    network = get_network('VGGnet_train')
+    # network = get_network('VGGnet_train')
 
-    train_net(network, imdb, roidb,
+    train_net(imdb, roidb,
               output_dir=output_dir,
               log_dir=log_dir,
               pretrained_model='data/pretrain_model/VGG_imagenet.npy',
